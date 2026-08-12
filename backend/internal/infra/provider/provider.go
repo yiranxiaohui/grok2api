@@ -215,18 +215,21 @@ type DeviceAuthorization struct {
 
 // CredentialSeed represents an OAuth credential not yet persisted after login or import.
 type CredentialSeed struct {
-	Provider                account.Provider
-	AuthType                account.AuthType
-	WebTier                 account.WebTier
-	Name                    string
-	Email                   string
-	UserID                  string
-	TeamID                  string
-	SourceKey               string
-	OIDCClientID            string
-	AccessToken             string
-	RefreshToken            string
-	CloudflareCookies       string
+	Provider          account.Provider
+	AuthType          account.AuthType
+	WebTier           account.WebTier
+	Name              string
+	Email             string
+	UserID            string
+	TeamID            string
+	SourceKey         string
+	OIDCClientID      string
+	AccessToken       string
+	RefreshToken      string
+	CloudflareCookies string
+	// ProxyURL is write-only import metadata. Credential exports deliberately
+	// omit it so exporting an account cannot disclose proxy credentials.
+	ProxyURL                string
 	ExpiresAt               time.Time
 	WebNSFWEnabledAt        *time.Time
 	WebTermsAcceptedAt      *time.Time

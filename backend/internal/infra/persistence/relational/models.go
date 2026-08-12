@@ -55,7 +55,7 @@ type accountModel struct {
 	// EgressNodeID is nullable so existing accounts retain the legacy pool
 	// routing behavior until an administrator explicitly assigns a node.
 	EgressNodeID         *uint64 `gorm:"index:idx_accounts_egress_node"`
-	EgressAssignmentMode string  `gorm:"size:16;not null;default:'';check:chk_accounts_egress_assignment_mode,egress_assignment_mode IN ('','manual','auto')"`
+	EgressAssignmentMode string  `gorm:"size:16;not null;default:'';check:chk_accounts_egress_assignment_mode,egress_assignment_mode IN ('','manual','auto','strict')"`
 	EgressAssignedAt     *time.Time
 	CreatedAt            time.Time               `gorm:"not null"`
 	UpdatedAt            time.Time               `gorm:"not null"`
@@ -495,6 +495,8 @@ type egressNodeModel struct {
 	Scope                       string  `gorm:"size:32;not null;check:chk_egress_nodes_specific_scope,scope IN ('grok_build','grok_web','grok_console','grok_web_asset','grok_console_asset')"`
 	Enabled                     bool    `gorm:"not null;default:true"`
 	ProxyPool                   bool    `gorm:"not null;default:false"`
+	ImportOnly                  bool    `gorm:"not null;default:false"`
+	ImportFingerprint           *string `gorm:"size:64;check:chk_egress_nodes_import_fingerprint,import_fingerprint IS NULL OR length(import_fingerprint) = 64"`
 	SourceID                    *uint64 `gorm:"uniqueIndex:uidx_egress_nodes_source_key,priority:1;index:idx_egress_nodes_source;constraint:OnUpdate:CASCADE,OnDelete:SET NULL"`
 	SourceKey                   string  `gorm:"size:64;not null;default:'';uniqueIndex:uidx_egress_nodes_source_key,priority:2;check:chk_egress_nodes_source_key,length(source_key) <= 64"`
 	AccountCapacity             int     `gorm:"not null;default:0;check:chk_egress_nodes_capacity,account_capacity BETWEEN 0 AND 100000"`

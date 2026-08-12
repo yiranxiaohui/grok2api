@@ -483,6 +483,9 @@ func deleteLinkedGroupsTx(tx *gorm.DB, providerValue account.Provider, lockedRoo
 	if result.Error != nil {
 		return outcome, result.Error
 	}
+	if err := deleteAllUnusedImportedProxyNodes(tx); err != nil {
+		return outcome, err
+	}
 	outcome.Deleted = result.RowsAffected
 	outcome.DeletedIDs = append([]uint64(nil), deletable...)
 	rootSet := make(map[uint64]struct{}, len(resolution.RootIDs))

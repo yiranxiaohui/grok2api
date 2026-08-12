@@ -475,8 +475,7 @@ func (m *Manager) AcquireCredential(ctx context.Context, scope domain.Scope, cre
 		}
 		identity = "sso_" + security.HashToken(token)[:32]
 	}
-	ctx = WithAccountIdentity(ctx, identity)
-	ctx = WithEgressNode(ctx, credential.EgressNodeID)
+	ctx = withCredentialEgress(WithAccountIdentity(ctx, identity), credential)
 	lease, _, err := m.acquire(ctx, scope, strconv.FormatUint(credential.ID, 10), true, credential.EncryptedCloudflareCookie, credential.EgressNodeID)
 	return lease, err
 }
@@ -873,7 +872,7 @@ func (m *Manager) acquire(ctx context.Context, scope domain.Scope, affinity stri
 		}
 		candidateAvailable := make([]domain.Node, 0, len(nodes))
 		for _, node := range nodes {
-			if !node.Enabled {
+			if !node.Enabled || node.ImportOnly {
 				continue
 			}
 			// A fixed fallback is a reserved last resort, not another member of
@@ -925,6 +924,9 @@ func (m *Manager) acquire(ctx context.Context, scope domain.Scope, affinity stri
 // is disabled. A fixed fallback is never silently replaced with direct traffic
 // when it is invalid or unavailable.
 func (m *Manager) acquireUnavailableFallback(ctx context.Context, scope domain.Scope, affinity string, allowDirect bool, encryptedCredentialCookies string, managedClearance bool, primaryErr error) (*Lease, bool, error) {
+	if strictEgressFromContext(ctx) {
+		return nil, true, primaryErr
+	}
 	lease, configured, applied, err := m.acquireFallback(ctx, scope, affinity, allowDirect, encryptedCredentialCookies, managedClearance, primaryErr)
 	if err != nil {
 		return nil, configured, err
@@ -1038,6 +1040,9 @@ func (m *Manager) fixedFallbackNode(ctx context.Context, scope domain.Scope, nod
 	}
 	if !selected.Enabled {
 		return domain.Node{}, fmt.Errorf("固定回退节点 %d 已禁用", nodeID)
+	}
+	if selected.ImportOnly {
+		return domain.Node{}, fmt.Errorf("固定回退节点 %d 是账号导入专用代理", nodeID)
 	}
 	if selected.ProxyPool {
 		return domain.Node{}, fmt.Errorf("固定回退节点 %d 使用代理池模式", nodeID)

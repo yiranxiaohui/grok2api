@@ -411,7 +411,7 @@ func TestConsoleImportAcceptsJSONPlainTextAndCookieFormat(t *testing.T) {
 	if len(values) != 2 || values[0].AccessToken != "token-one" || values[1].AccessToken != "token-two" {
 		t.Fatalf("plain values = %#v", values)
 	}
-	values, err = parseImportedCredentials([]byte(`{"provider":"grok_console","accounts":[{"name":"console-a","sso_token":"token-a","cloudflare_cookies":"cf_clearance=abc"}]}`))
+	values, err = parseImportedCredentials([]byte(`{"provider":"grok_console","accounts":[{"name":"console-a","sso_token":"token-a","cloudflare_cookies":"cf_clearance=abc","proxy":"https://user:pass@proxy.example:8443"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,6 +420,9 @@ func TestConsoleImportAcceptsJSONPlainTextAndCookieFormat(t *testing.T) {
 	}
 	if values[0].CloudflareCookies != "cf_clearance=abc" {
 		t.Fatalf("cloudflare cookies = %q", values[0].CloudflareCookies)
+	}
+	if values[0].ProxyURL != "https://user:pass@proxy.example:8443" {
+		t.Fatalf("proxy URL = %q", values[0].ProxyURL)
 	}
 }
 

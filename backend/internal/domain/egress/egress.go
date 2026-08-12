@@ -23,11 +23,15 @@ const (
 )
 
 type Node struct {
-	ID                          uint64
-	Name                        string
-	Scope                       Scope
-	Enabled                     bool
-	ProxyPool                   bool
+	ID        uint64
+	Name      string
+	Scope     Scope
+	Enabled   bool
+	ProxyPool bool
+	// ImportOnly marks a write-only proxy supplied with an account import. It
+	// may only serve explicitly bound accounts and never joins ordinary pools,
+	// automatic assignment, or fallback routing.
+	ImportOnly                  bool
 	SourceID                    uint64
 	SourceKey                   string
 	AccountCapacity             int
@@ -61,6 +65,7 @@ type PublicNode struct {
 	Enabled              bool
 	ProxyConfigured      bool
 	ProxyPool            bool
+	ImportOnly           bool
 	SourceID             uint64
 	AccountCapacity      int
 	UserAgent            string

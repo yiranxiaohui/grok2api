@@ -175,7 +175,7 @@ func (s *Service) eligibleNodesForProvider(values []domain.Node, provider accoun
 	result := make([]domain.Node, 0, len(values))
 	maxAge := max(probeInterval*2, time.Minute)
 	for _, value := range values {
-		if !value.Enabled || value.EncryptedProxyURL == "" || !scopeSupportsProvider(value.Scope, provider) || value.ProbeStatus != domain.ProbeStatusHealthy || value.LastProbedAt == nil || now.Sub(value.LastProbedAt.UTC()) > maxAge {
+		if !value.Enabled || value.ImportOnly || value.EncryptedProxyURL == "" || !scopeSupportsProvider(value.Scope, provider) || value.ProbeStatus != domain.ProbeStatusHealthy || value.LastProbedAt == nil || now.Sub(value.LastProbedAt.UTC()) > maxAge {
 			continue
 		}
 		if value.CooldownUntil != nil && now.Before(value.CooldownUntil.UTC()) && !value.ProxyPool && !s.accountBoundProxy(value) {

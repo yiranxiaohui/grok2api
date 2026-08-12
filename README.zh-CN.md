@@ -225,6 +225,14 @@ pnpm dev
 
 导入兼容 UTF-8 BOM。批量额度同步、Build 凭据续期、Web→Build/Console 转换、账号工具和账号清理均显示实时进度。
 
+JSON/JSONL 中的每个账号可携带 `proxy_url`（同时兼容 `proxy`、`proxyUrl`）：
+
+```json
+{"refresh_token":"...","proxy_url":"socks5h://user:password@proxy.example:1080"}
+```
+
+Build、Web 与 Console 均支持该字段。代理必须是完整的 HTTP、HTTPS、SOCKS4 或 SOCKS5 URL；导入会原子创建或复用账号导入专用节点，并建立严格固定绑定。该账号不会通过普通代理池、直连或全局出口回退发送请求；固定代理不可用时请求直接失败。未携带代理的再次导入会保留已有绑定。代理凭据加密存储且不会包含在账号导出中。
+
 Web 账号工具支持接受协议、设置对应 20–40 岁的随机生日和开启 NSFW；已完成步骤会记录并在后续执行时跳过。
 
 系统支持自动删除长期处于 `reauthRequired` 的账号，默认关闭；存在活动推理租约或视频任务的账号不会被删除。

@@ -64,6 +64,19 @@ func TestBuildRouteModeValidation(t *testing.T) {
 	}
 }
 
+func TestEgressAssignmentModeValidation(t *testing.T) {
+	for _, value := range []EgressAssignmentMode{EgressAssignmentManual, EgressAssignmentAuto, EgressAssignmentStrict} {
+		if !value.IsValid() {
+			t.Fatalf("valid egress assignment mode rejected: %q", value)
+		}
+	}
+	for _, value := range []EgressAssignmentMode{"", "pool", "fixed"} {
+		if value.IsValid() {
+			t.Fatalf("invalid egress assignment mode accepted: %q", value)
+		}
+	}
+}
+
 func TestIsBuildSuper(t *testing.T) {
 	paid := Billing{MonthlyLimit: 100}
 	zeroFree := Billing{IsUnifiedBillingUser: true}

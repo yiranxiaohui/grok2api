@@ -28,6 +28,9 @@ type importEntry struct {
 	SSOToken          string `json:"sso_token"`
 	Token             string `json:"token"`
 	CloudflareCookies string `json:"cloudflare_cookies"`
+	ProxyURL          string `json:"proxy_url"`
+	Proxy             string `json:"proxy"`
+	ProxyURLCamel     string `json:"proxyUrl"`
 }
 
 func parseImportedCredentials(data []byte) ([]provider.CredentialSeed, error) {
@@ -69,6 +72,11 @@ func parseImportedCredentials(data []byte) ([]provider.CredentialSeed, error) {
 		seed.Email = strings.TrimSpace(entry.Email)
 		seed.UserID = strings.TrimSpace(entry.UserID)
 		seed.CloudflareCookies = entry.CloudflareCookies
+		proxyURL, err := provider.ImportedProxyURL(entry.ProxyURL, entry.Proxy, entry.ProxyURLCamel)
+		if err != nil {
+			return nil, fmt.Errorf("第 %d 个账号: %w", index+1, err)
+		}
+		seed.ProxyURL = proxyURL
 		result = append(result, seed)
 	}
 	return result, nil

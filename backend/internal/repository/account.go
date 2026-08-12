@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
+	"github.com/chenyme/grok2api/backend/internal/domain/egress"
 )
 
 // AccountUpdates 表示批量账号更新中允许持久化的字段。
@@ -18,6 +19,24 @@ type AccountUpdates struct {
 type AccountUpsertResult struct {
 	ID      uint64
 	Created bool
+}
+
+// ImportedProxyBinding is normalized and encrypted before it reaches the
+// persistence layer. Fingerprint contains a one-way digest of scope and the
+// normalized proxy URL; it lets identical imported proxies share one node
+// without exposing the URL or its credentials.
+type ImportedProxyBinding struct {
+	Fingerprint       string
+	Name              string
+	Scope             egress.Scope
+	EncryptedProxyURL string
+}
+
+// AccountProxyImportRepository atomically upserts credentials and their
+// optional strict proxy bindings. It is kept separate from AccountRepository
+// so lightweight repository adapters that never import proxies remain small.
+type AccountProxyImportRepository interface {
+	UpsertManyByIdentityWithProxies(context.Context, []account.Credential, map[int]ImportedProxyBinding, time.Time) ([]AccountUpsertResult, error)
 }
 
 // BuildBotFlagCredential is the minimal encrypted credential projection used to

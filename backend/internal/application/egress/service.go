@@ -325,6 +325,9 @@ func (s *Service) Update(ctx context.Context, id uint64, input Input) (domain.Pu
 		return domain.PublicNode{}, err
 	}
 	previousScope := value.Scope
+	// Saving through the general node editor intentionally detaches the
+	// write-only fingerprint while retaining ImportOnly isolation. A later
+	// account re-import will create/reuse the node matching the supplied URL.
 	value, err = s.applyInput(value, input, false)
 	if err != nil {
 		return domain.PublicNode{}, err
@@ -582,6 +585,9 @@ func (s *Service) AssignAccounts(ctx context.Context, nodeID uint64, provider ac
 	if !node.Enabled || strings.TrimSpace(node.EncryptedProxyURL) == "" {
 		return AssignmentResult{}, fmt.Errorf("%w: 只能绑定启用且已配置代理地址的节点", ErrInvalidInput)
 	}
+	if node.ImportOnly {
+		return AssignmentResult{}, fmt.Errorf("%w: 账号导入专用代理只能由携带该代理的账号导入绑定", ErrInvalidInput)
+	}
 	if !scopeSupportsProvider(node.Scope, provider) {
 		return AssignmentResult{}, fmt.Errorf("%w: 代理节点作用域与账号来源不兼容", ErrInvalidInput)
 	}
@@ -814,6 +820,7 @@ func (s *Service) publicNode(value domain.Node) domain.PublicNode {
 		ID: value.ID, Name: value.Name, Scope: value.Scope, Enabled: value.Enabled,
 		ProxyConfigured: value.EncryptedProxyURL != "", UserAgent: userAgent, CookieConfigured: value.EncryptedCloudflareCookie != "",
 		ProxyPool:         proxyPool,
+		ImportOnly:        value.ImportOnly,
 		SourceID:          value.SourceID,
 		AccountCapacity:   value.AccountCapacity,
 		AccountBoundProxy: accountBoundProxy,

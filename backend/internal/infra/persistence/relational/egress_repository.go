@@ -751,7 +751,7 @@ func (r *EgressRepository) assignedAccountCountsForNodes(ctx context.Context, no
 
 func toEgressDomain(row egressNodeModel) egress.Node {
 	return egress.Node{
-		ID: row.ID, Name: row.Name, Scope: egress.Scope(row.Scope), Enabled: row.Enabled, ProxyPool: row.ProxyPool,
+		ID: row.ID, Name: row.Name, Scope: egress.Scope(row.Scope), Enabled: row.Enabled, ProxyPool: row.ProxyPool, ImportOnly: row.ImportOnly,
 		SourceID: valueEgressNodeID(row.SourceID), SourceKey: row.SourceKey, AccountCapacity: row.AccountCapacity,
 		EncryptedProxyURL: row.EncryptedProxyURL, UserAgent: row.UserAgent, EncryptedCloudflareCookie: row.EncryptedCloudflareCookie,
 		ClearanceRefreshedAt: row.ClearanceRefreshedAt, ClearanceFingerprint: row.ClearanceFingerprint,
@@ -775,7 +775,7 @@ func fromEgressDomain(value egress.Node) egressNodeModel {
 		probeStatus = egress.ProbeStatusUnknown
 	}
 	return egressNodeModel{
-		ID: value.ID, Name: value.Name, Scope: string(value.Scope), Enabled: value.Enabled, ProxyPool: value.ProxyPool,
+		ID: value.ID, Name: value.Name, Scope: string(value.Scope), Enabled: value.Enabled, ProxyPool: value.ProxyPool, ImportOnly: value.ImportOnly,
 		SourceID: egressNodeID(value.SourceID), SourceKey: value.SourceKey, AccountCapacity: value.AccountCapacity,
 		EncryptedProxyURL: value.EncryptedProxyURL, UserAgent: value.UserAgent, EncryptedCloudflareCookie: value.EncryptedCloudflareCookie,
 		ClearanceRefreshedAt: value.ClearanceRefreshedAt, ClearanceFingerprint: value.ClearanceFingerprint,
@@ -843,8 +843,8 @@ func toEgressOperationsConfigDomain(row egressOperationsConfigModel) egress.Oper
 	return egress.OperationsConfig{
 		ProbeProvider:        egress.ProbeProvider(row.ProbeProvider).Normalized(),
 		ProbeIntervalSeconds: row.ProbeIntervalSeconds, AutoAssignEnabled: row.AutoAssignEnabled, AutoBalanceEnabled: row.AutoBalanceEnabled,
-		AssignmentIntervalSeconds:         row.AssignmentIntervalSeconds,
-		EncryptedSubscriptionProxyURL:     row.EncryptedSubscriptionProxyURL,
+		AssignmentIntervalSeconds:     row.AssignmentIntervalSeconds,
+		EncryptedSubscriptionProxyURL: row.EncryptedSubscriptionProxyURL,
 		Fallbacks: map[egress.Scope]egress.FallbackConfig{
 			egress.ScopeBuild:        {Mode: egress.FallbackMode(row.BuildFallbackMode).Normalized(), NodeID: row.BuildFallbackNodeID},
 			egress.ScopeWeb:          {Mode: egress.FallbackMode(row.WebFallbackMode).Normalized(), NodeID: row.WebFallbackNodeID},

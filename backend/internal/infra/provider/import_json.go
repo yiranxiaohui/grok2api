@@ -11,6 +11,24 @@ import (
 
 var utf8BOM = []byte{0xef, 0xbb, 0xbf}
 
+// ImportedProxyURL accepts the canonical snake_case field plus common aliases.
+// Different non-empty values are rejected instead of silently choosing one.
+func ImportedProxyURL(proxyURL, proxy, proxyURLCamel string) (string, error) {
+	values := []string{proxyURL, proxy, proxyURLCamel}
+	selected := ""
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if selected != "" && value != selected {
+			return "", errors.New("proxy_url、proxy 与 proxyUrl 不能设置为不同值")
+		}
+		selected = value
+	}
+	return selected, nil
+}
+
 // DecodeCredentialJSONEntries accepts a regular credential document, a
 // top-level JSON array of credential objects, or a sequence of JSON objects,
 // including one object per line.

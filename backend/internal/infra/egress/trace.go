@@ -29,6 +29,7 @@ type Trace struct {
 type traceContextKey struct{}
 type accountContextKey struct{}
 type egressNodeContextKey struct{}
+type strictEgressContextKey struct{}
 type qualityProbeContextKey struct{}
 
 // WithAccount passes a stable Provider account identity to the egress layer. It is used only to render
@@ -49,9 +50,17 @@ func WithCredential(ctx context.Context, credential accountdomain.Credential) co
 		if provider == "" {
 			provider = accountdomain.ProviderBuild
 		}
-		return WithEgressNode(WithAccount(ctx, string(provider), credential.ID), credential.EgressNodeID)
+		return withCredentialEgress(WithAccount(ctx, string(provider), credential.ID), credential)
 	}
-	return WithEgressNode(WithAccountIdentity(ctx, identity), credential.EgressNodeID)
+	return withCredentialEgress(WithAccountIdentity(ctx, identity), credential)
+}
+
+func withCredentialEgress(ctx context.Context, credential accountdomain.Credential) context.Context {
+	ctx = WithEgressNode(ctx, credential.EgressNodeID)
+	if ctx == nil || credential.EgressAssignmentMode != accountdomain.EgressAssignmentStrict {
+		return ctx
+	}
+	return context.WithValue(ctx, strictEgressContextKey{}, true)
 }
 
 // WithEgressNode attaches the explicitly assigned node ID for transports that
@@ -74,6 +83,14 @@ func egressNodeFromContext(ctx context.Context) uint64 {
 // EgressNodeFromContext exposes a non-sensitive binding identifier to the
 // Build transport without exposing the context key itself.
 func EgressNodeFromContext(ctx context.Context) uint64 { return egressNodeFromContext(ctx) }
+
+func strictEgressFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(strictEgressContextKey{}).(bool)
+	return value
+}
 
 // WithQualityProbe marks an administrator-initiated probe. It permits the
 // selected fixed node to be tested while disabled or cooling without making

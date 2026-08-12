@@ -110,17 +110,19 @@ const (
 	AuthStatusReauthRequired AuthStatus = "reauthRequired"
 )
 
-// EgressAssignmentMode 表示账号出口节点的维护方式。手工绑定绝不会被
-// 自动均衡任务迁移，自动绑定才允许在健康或容量变化时重新分配。
+// EgressAssignmentMode 表示账号出口节点的维护方式。手工和严格绑定绝不会被
+// 自动均衡任务迁移，自动绑定才允许在健康或容量变化时重新分配。严格绑定还会
+// 禁止在固定节点不可用时应用全局出口回退。
 type EgressAssignmentMode string
 
 const (
 	EgressAssignmentManual EgressAssignmentMode = "manual"
 	EgressAssignmentAuto   EgressAssignmentMode = "auto"
+	EgressAssignmentStrict EgressAssignmentMode = "strict"
 )
 
 func (value EgressAssignmentMode) IsValid() bool {
-	return value == EgressAssignmentManual || value == EgressAssignmentAuto
+	return value == EgressAssignmentManual || value == EgressAssignmentAuto || value == EgressAssignmentStrict
 }
 
 // Credential 表示持久化的上游 OAuth 账号。

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
+	"github.com/chenyme/grok2api/backend/internal/domain/egress"
 	"github.com/chenyme/grok2api/backend/internal/domain/media"
 	"github.com/chenyme/grok2api/backend/internal/repository"
 	"gorm.io/gorm"
@@ -1163,65 +1164,90 @@ func (r *AccountRepository) UpsertManyByIdentity(ctx context.Context, values []a
 	if len(values) == 0 {
 		return []repository.AccountUpsertResult{}, nil
 	}
-	results := make([]repository.AccountUpsertResult, len(values))
+	var results []repository.AccountUpsertResult
 	err := r.db.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		identityKeys := make([]string, 0, len(values))
-		sourceKeysByProvider := make(map[account.Provider][]string)
-		for _, value := range values {
-			identityKeys = append(identityKeys, fromAccountDomain(value).IdentityKey)
-			if strings.TrimSpace(value.SourceKey) != "" {
-				sourceKeysByProvider[value.Provider] = append(sourceKeysByProvider[value.Provider], value.SourceKey)
-			}
-		}
-		var existingRows []accountModel
-		if err := tx.Where("identity_key IN ?", identityKeys).Find(&existingRows).Error; err != nil {
-			return err
-		}
-		existingByIdentity := make(map[string]accountModel, len(values))
-		for _, row := range existingRows {
-			existingByIdentity[row.IdentityKey] = row
-		}
-		existingBySource := make(map[string]accountModel, len(values))
-		for providerValue, sourceKeys := range sourceKeysByProvider {
-			var sourceRows []accountModel
-			if err := tx.Where("provider = ? AND source_key IN ?", providerValue, sourceKeys).Find(&sourceRows).Error; err != nil {
-				return err
-			}
-			for _, row := range sourceRows {
-				key := providerSourceLookupKey(row.Provider, row.SourceKey)
-				if existing, duplicate := existingBySource[key]; duplicate && existing.ID != row.ID {
-					return fmt.Errorf("Provider %s 的来源凭据匹配多个账号", row.Provider)
-				}
-				existingBySource[key] = row
-			}
-		}
-		for index, value := range values {
-			identityKey := fromAccountDomain(value).IdentityKey
-			existing, foundByIdentity := existingByIdentity[identityKey]
-			bySource, foundBySource := existingBySource[providerSourceLookupKey(string(value.Provider), value.SourceKey)]
-			if foundByIdentity && foundBySource && existing.ID != bySource.ID {
-				return fmt.Errorf("账号身份与来源凭据指向不同账号")
-			}
-			if !foundByIdentity && foundBySource {
-				existing = bySource
-			}
-			var current *accountModel
-			if foundByIdentity || foundBySource {
-				current = &existing
-			}
-			result, stored, err := upsertKnownAccountByIdentity(tx, value, current)
-			if err != nil {
-				return err
-			}
-			results[index] = result
-			existingByIdentity[stored.IdentityKey] = stored
-			existingBySource[providerSourceLookupKey(stored.Provider, stored.SourceKey)] = stored
-		}
-		return nil
+		var err error
+		results, _, err = upsertManyAccountsByIdentity(tx, values)
+		return err
 	})
 	if err != nil {
 		return nil, mapError(err)
 	}
+	r.notifyAccountUpserts(ctx, values)
+	return results, nil
+}
+
+// UpsertManyByIdentityWithProxies keeps each credential and its imported proxy
+// node/binding in one transaction. Imported nodes are deduplicated by a
+// write-only fingerprint and excluded from every unbound routing pool.
+func (r *AccountRepository) UpsertManyByIdentityWithProxies(ctx context.Context, values []account.Credential, bindings map[int]repository.ImportedProxyBinding, assignedAt time.Time) ([]repository.AccountUpsertResult, error) {
+	if len(values) == 0 {
+		return []repository.AccountUpsertResult{}, nil
+	}
+	for index, binding := range bindings {
+		if index < 0 || index >= len(values) || len(binding.Fingerprint) != 64 || strings.TrimSpace(binding.Name) == "" || len(binding.Name) > 160 || strings.TrimSpace(binding.EncryptedProxyURL) == "" || !importProxyScopeMatchesProvider(binding.Scope, values[index].Provider) {
+			return nil, errors.New("账号导入代理绑定参数无效")
+		}
+	}
+	if assignedAt.IsZero() {
+		assignedAt = time.Now().UTC()
+	} else {
+		assignedAt = assignedAt.UTC()
+	}
+	var results []repository.AccountUpsertResult
+	err := r.db.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var stored []accountModel
+		var err error
+		results, stored, err = upsertManyAccountsByIdentity(tx, values)
+		if err != nil {
+			return err
+		}
+
+		targets := make([]uint64, len(values))
+		nodesByFingerprint := make(map[string]egressNodeModel, len(bindings))
+		for index := range values {
+			binding, bound := bindings[index]
+			if !bound {
+				continue
+			}
+			node, ok := nodesByFingerprint[binding.Fingerprint]
+			if !ok {
+				node, err = findOrCreateImportedProxyNode(tx, binding)
+				if err != nil {
+					return err
+				}
+				nodesByFingerprint[binding.Fingerprint] = node
+			}
+			targets[index] = node.ID
+		}
+
+		// Preserve document order when the same account appears more than once:
+		// the last imported entry wins deterministically.
+		for index, nodeID := range targets {
+			if nodeID == 0 {
+				continue
+			}
+			result := tx.Model(&accountModel{}).Where("id = ?", stored[index].ID).Updates(map[string]any{
+				"egress_node_id": nodeID, "egress_assignment_mode": string(account.EgressAssignmentStrict),
+				"egress_assigned_at": assignedAt,
+			})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return fmt.Errorf("更新账号 %d 的导入代理绑定失败", stored[index].ID)
+			}
+		}
+		return deleteAllUnusedImportedProxyNodes(tx)
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	r.notifyAccountUpserts(ctx, values)
+	return results, nil
+}
+
+func (r *AccountRepository) notifyAccountUpserts(ctx context.Context, values []account.Credential) {
 	providers := make(map[account.Provider]struct{})
 	for _, value := range values {
 		providers[value.Provider] = struct{}{}
@@ -1229,7 +1255,106 @@ func (r *AccountRepository) UpsertManyByIdentity(ctx context.Context, values []a
 	for providerValue := range providers {
 		r.notifyInvalidation(ctx, repository.InvalidationEvent{Kind: repository.InvalidationAccountStateChanged, Provider: providerValue})
 	}
-	return results, nil
+}
+
+func upsertManyAccountsByIdentity(tx *gorm.DB, values []account.Credential) ([]repository.AccountUpsertResult, []accountModel, error) {
+	results := make([]repository.AccountUpsertResult, len(values))
+	storedRows := make([]accountModel, len(values))
+	identityKeys := make([]string, 0, len(values))
+	sourceKeysByProvider := make(map[account.Provider][]string)
+	for _, value := range values {
+		identityKeys = append(identityKeys, fromAccountDomain(value).IdentityKey)
+		if strings.TrimSpace(value.SourceKey) != "" {
+			sourceKeysByProvider[value.Provider] = append(sourceKeysByProvider[value.Provider], value.SourceKey)
+		}
+	}
+	var existingRows []accountModel
+	if err := tx.Where("identity_key IN ?", identityKeys).Find(&existingRows).Error; err != nil {
+		return nil, nil, err
+	}
+	existingByIdentity := make(map[string]accountModel, len(values))
+	for _, row := range existingRows {
+		existingByIdentity[row.IdentityKey] = row
+	}
+	existingBySource := make(map[string]accountModel, len(values))
+	for providerValue, sourceKeys := range sourceKeysByProvider {
+		var sourceRows []accountModel
+		if err := tx.Where("provider = ? AND source_key IN ?", providerValue, sourceKeys).Find(&sourceRows).Error; err != nil {
+			return nil, nil, err
+		}
+		for _, row := range sourceRows {
+			key := providerSourceLookupKey(row.Provider, row.SourceKey)
+			if existing, duplicate := existingBySource[key]; duplicate && existing.ID != row.ID {
+				return nil, nil, fmt.Errorf("Provider %s 的来源凭据匹配多个账号", row.Provider)
+			}
+			existingBySource[key] = row
+		}
+	}
+	for index, value := range values {
+		identityKey := fromAccountDomain(value).IdentityKey
+		existing, foundByIdentity := existingByIdentity[identityKey]
+		bySource, foundBySource := existingBySource[providerSourceLookupKey(string(value.Provider), value.SourceKey)]
+		if foundByIdentity && foundBySource && existing.ID != bySource.ID {
+			return nil, nil, errors.New("账号身份与来源凭据指向不同账号")
+		}
+		if !foundByIdentity && foundBySource {
+			existing = bySource
+		}
+		var current *accountModel
+		if foundByIdentity || foundBySource {
+			current = &existing
+		}
+		result, stored, err := upsertKnownAccountByIdentity(tx, value, current)
+		if err != nil {
+			return nil, nil, err
+		}
+		results[index], storedRows[index] = result, stored
+		existingByIdentity[stored.IdentityKey] = stored
+		existingBySource[providerSourceLookupKey(stored.Provider, stored.SourceKey)] = stored
+	}
+	return results, storedRows, nil
+}
+
+func importProxyScopeMatchesProvider(scope egress.Scope, provider account.Provider) bool {
+	switch provider {
+	case account.ProviderBuild:
+		return scope == egress.ScopeBuild
+	case account.ProviderWeb:
+		return scope == egress.ScopeWeb
+	case account.ProviderConsole:
+		return scope == egress.ScopeConsole
+	default:
+		return false
+	}
+}
+
+func findOrCreateImportedProxyNode(tx *gorm.DB, binding repository.ImportedProxyBinding) (egressNodeModel, error) {
+	var node egressNodeModel
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("import_fingerprint = ?", binding.Fingerprint).First(&node).Error
+	if err == nil {
+		return node, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return egressNodeModel{}, err
+	}
+	fingerprint := binding.Fingerprint
+	candidate := egressNodeModel{
+		Name: binding.Name, Scope: string(binding.Scope), Enabled: true, ImportOnly: true, ImportFingerprint: &fingerprint,
+		EncryptedProxyURL: binding.EncryptedProxyURL, Health: 1, ProbeStatus: string(egress.ProbeStatusUnknown),
+		IPv4ProbeStatus: string(egress.ProbeStatusUnknown), IPv6ProbeStatus: string(egress.ProbeStatusUnknown),
+	}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&candidate).Error; err != nil {
+		return egressNodeModel{}, err
+	}
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("import_fingerprint = ?", binding.Fingerprint).First(&node).Error; err != nil {
+		return egressNodeModel{}, err
+	}
+	return node, nil
+}
+
+func deleteAllUnusedImportedProxyNodes(tx *gorm.DB) error {
+	return tx.Where("import_only = ? AND NOT EXISTS (SELECT 1 FROM provider_accounts account WHERE account.egress_node_id = egress_nodes.id)", true).
+		Delete(&egressNodeModel{}).Error
 }
 
 func upsertAccountByIdentity(tx *gorm.DB, value account.Credential) (repository.AccountUpsertResult, error) {
@@ -1642,7 +1767,10 @@ func (r *AccountRepository) Delete(ctx context.Context, id uint64) error {
 		if err := rejectAccountsWithMediaJobs(tx, []uint64{id}); err != nil {
 			return err
 		}
-		return mapError(tx.Delete(&accountModel{}, id).Error)
+		if err := tx.Delete(&accountModel{}, id).Error; err != nil {
+			return mapError(err)
+		}
+		return deleteAllUnusedImportedProxyNodes(tx)
 	})
 	if err == nil {
 		r.notifyInvalidation(ctx, repository.InvalidationEvent{Kind: repository.InvalidationAccountStateChanged})
@@ -1668,7 +1796,10 @@ func (r *AccountRepository) DeleteMany(ctx context.Context, ids []uint64) (int64
 		}
 		result := tx.Where("id IN ?", lockedIDs).Delete(&accountModel{})
 		deleted = result.RowsAffected
-		return result.Error
+		if result.Error != nil {
+			return result.Error
+		}
+		return deleteAllUnusedImportedProxyNodes(tx)
 	})
 	if err == nil && deleted > 0 {
 		r.notifyInvalidation(ctx, repository.InvalidationEvent{Kind: repository.InvalidationAccountStateChanged})
@@ -1739,7 +1870,7 @@ func (r *AccountRepository) DeleteAutoCleanReauthCandidates(ctx context.Context,
 		}
 		if result.RowsAffected == int64(len(lockedIDs)) {
 			deletedIDs = append(deletedIDs, lockedIDs...)
-			return nil
+			return deleteAllUnusedImportedProxyNodes(tx)
 		}
 		var remaining []uint64
 		if err := tx.Model(&accountModel{}).Where("id IN ?", lockedIDs).Pluck("id", &remaining).Error; err != nil {
@@ -1754,7 +1885,7 @@ func (r *AccountRepository) DeleteAutoCleanReauthCandidates(ctx context.Context,
 				deletedIDs = append(deletedIDs, id)
 			}
 		}
-		return nil
+		return deleteAllUnusedImportedProxyNodes(tx)
 	})
 	if err == nil && len(deletedIDs) > 0 {
 		r.notifyInvalidation(ctx, repository.InvalidationEvent{Kind: repository.InvalidationAccountStateChanged})

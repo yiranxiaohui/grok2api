@@ -255,7 +255,7 @@ func TestNormalizeResponsesRequestFlattensJSONSchema(t *testing.T) {
 }
 
 func TestParseImportedCredentialsBatch(t *testing.T) {
-	data := []byte(`{"accounts":[{"provider":"grok_build","name":"primary","client_id":"client-1","access_token":"access-1","refresh_token":"refresh-1","email":"user@example.com","user_id":"user-1","expires_at":"2026-07-11T00:00:00Z"},{"refresh_token":"refresh-2"}]}`)
+	data := []byte(`{"accounts":[{"provider":"grok_build","name":"primary","client_id":"client-1","access_token":"access-1","refresh_token":"refresh-1","email":"user@example.com","user_id":"user-1","expires_at":"2026-07-11T00:00:00Z","proxy_url":"http://user:pass@proxy.example:8080"},{"refresh_token":"refresh-2","proxy":"socks5://proxy.example:1080"}]}`)
 	values, err := parseImportedCredentials(data)
 	if err != nil {
 		t.Fatal(err)
@@ -265,6 +265,16 @@ func TestParseImportedCredentialsBatch(t *testing.T) {
 	}
 	if values[0].SourceKey == values[1].SourceKey {
 		t.Fatal("不同账号生成了相同来源标识")
+	}
+	if values[0].ProxyURL != "http://user:pass@proxy.example:8080" || values[1].ProxyURL != "socks5://proxy.example:1080" {
+		t.Fatalf("import proxies = %q, %q", values[0].ProxyURL, values[1].ProxyURL)
+	}
+}
+
+func TestParseImportedCredentialsRejectsConflictingProxyAliases(t *testing.T) {
+	_, err := parseImportedCredentials([]byte(`{"refresh_token":"refresh","proxy_url":"http://one.example:8080","proxy":"http://two.example:8080"}`))
+	if err == nil || !strings.Contains(err.Error(), "proxy_url") {
+		t.Fatalf("conflicting proxy aliases error = %v", err)
 	}
 }
 

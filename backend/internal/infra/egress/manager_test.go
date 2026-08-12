@@ -1182,6 +1182,50 @@ func TestAcquireCredentialUsesConfiguredFixedFallbackWhenBoundNodeIsUnavailable(
 	}
 }
 
+func TestAcquireCredentialStrictBindingRejectsConfiguredFallback(t *testing.T) {
+	cipher, err := security.NewCipher("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyURL, err := cipher.Encrypt("http://fixed-fallback.example:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := domain.DefaultOperationsConfig()
+	config.Fallbacks[domain.ScopeBuild] = domain.FallbackConfig{Mode: domain.FallbackModeFixed, NodeID: 2}
+	manager := NewManager(fallbackEgressRepository{
+		egressRepositoryTestStub: egressRepositoryTestStub{nodes: []domain.Node{
+			{ID: 1, Name: "disabled", Scope: domain.ScopeBuild, Enabled: false},
+			{ID: 2, Name: "fixed-fallback", Scope: domain.ScopeBuild, Enabled: true, Health: 1, EncryptedProxyURL: proxyURL},
+		}},
+		config: config,
+	}, cipher)
+	lease, err := manager.AcquireCredential(context.Background(), domain.ScopeBuild, accountdomain.Credential{
+		ID: 42, Provider: accountdomain.ProviderBuild, EgressNodeID: 1, EgressAssignmentMode: accountdomain.EgressAssignmentStrict,
+	})
+	if err == nil || !strings.Contains(err.Error(), "已禁用") || lease != nil {
+		t.Fatalf("strict bound fallback: lease=%#v err=%v", lease, err)
+	}
+}
+
+func TestImportOnlyNodeIsExcludedFromUnboundPool(t *testing.T) {
+	cipher, err := security.NewCipher("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyURL, err := cipher.Encrypt("http://import-only.example:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(egressRepositoryTestStub{nodes: []domain.Node{{
+		ID: 1, Name: "import-only", Scope: domain.ScopeBuild, Enabled: true, Health: 1, ImportOnly: true, EncryptedProxyURL: proxyURL,
+	}}}, cipher)
+	lease, configured, err := manager.AcquireIfConfigured(context.Background(), domain.ScopeBuild, "unbound")
+	if err != nil || configured || lease != nil {
+		t.Fatalf("import-only pool selection: lease=%#v configured=%v err=%v", lease, configured, err)
+	}
+}
+
 func TestFlareSolverrModeIgnoresCredentialCookie(t *testing.T) {
 	cipher, err := security.NewCipher("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 	if err != nil {

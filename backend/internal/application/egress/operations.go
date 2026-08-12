@@ -493,6 +493,9 @@ func (s *Service) validateFixedFallbackNode(scope domain.Scope, node domain.Node
 	if !node.Enabled || strings.TrimSpace(node.EncryptedProxyURL) == "" {
 		return fmt.Errorf("%w: 固定回退节点必须启用且配置代理地址", ErrInvalidInput)
 	}
+	if node.ImportOnly {
+		return fmt.Errorf("%w: 账号导入专用代理不能用作固定回退", ErrInvalidInput)
+	}
 	if node.ProxyPool {
 		return fmt.Errorf("%w: 固定回退节点不能使用代理池模式", ErrInvalidInput)
 	}

@@ -224,6 +224,14 @@ After first sign-in, change the administrator password and remove `bootstrapAdmi
 
 Imports accept UTF-8 BOM. Bulk quota sync, Build credential renewal, Web→Build/Console conversion, account tools, and cleanup report live progress.
 
+Each JSON/JSONL account may include `proxy_url` (`proxy` and `proxyUrl` are also accepted):
+
+```json
+{"refresh_token":"...","proxy_url":"socks5h://user:password@proxy.example:1080"}
+```
+
+Build, Web, and Console imports support this field. The proxy must be a complete HTTP, HTTPS, SOCKS4, or SOCKS5 URL. Import atomically creates or reuses an import-only node and establishes a strict fixed binding: that account never uses the ordinary proxy pool, direct routing, or a global egress fallback, and its request fails when the fixed proxy is unavailable. Re-importing without the field preserves an existing binding. Proxy credentials are encrypted at rest and are never included in account exports.
+
 Web account tools can accept the terms, set a random birthday corresponding to an age of 20–40, and enable NSFW. Completed steps are recorded and skipped on later runs.
 
 Automatic deletion of old `reauthRequired` accounts is available but disabled by default. Active inference leases and video jobs are protected.

@@ -83,6 +83,8 @@ var schemaIndexes = []string{
 	"CREATE INDEX IF NOT EXISTS idx_billing_reservations_expiry ON billing_reservations(expires_at, client_key_id)",
 	"CREATE INDEX IF NOT EXISTS idx_egress_nodes_scope_health ON egress_nodes(scope, enabled, health DESC, id ASC)",
 	"CREATE INDEX IF NOT EXISTS idx_egress_nodes_probe_due ON egress_nodes(enabled, last_probed_at, id)",
+	"CREATE UNIQUE INDEX IF NOT EXISTS uidx_egress_nodes_import_fingerprint ON egress_nodes(import_fingerprint) WHERE import_fingerprint IS NOT NULL",
+	"CREATE INDEX IF NOT EXISTS idx_egress_nodes_import_only ON egress_nodes(id) WHERE import_only = TRUE",
 	"CREATE INDEX IF NOT EXISTS idx_egress_sources_scope_name ON egress_subscription_sources(scope, LOWER(name), id)",
 	"CREATE INDEX IF NOT EXISTS idx_audits_created_id ON request_audits(created_at DESC, id DESC)",
 	"CREATE UNIQUE INDEX IF NOT EXISTS idx_audits_event_id ON request_audits(event_id) WHERE event_id <> ''",
@@ -160,6 +162,9 @@ func (d *Database) initializeSchema(ctx context.Context) error {
 	}
 	if err := d.ensureConsoleConstraints(ctx); err != nil {
 		return fmt.Errorf("迁移 Console 数据库约束: %w", err)
+	}
+	if err := d.ensureEgressAssignmentModeConstraint(ctx); err != nil {
+		return fmt.Errorf("迁移账号出口绑定模式约束: %w", err)
 	}
 	if err := d.ensureEgressAssetScopeConstraints(ctx); err != nil {
 		return fmt.Errorf("迁移资源出口数据库约束: %w", err)
@@ -373,6 +378,14 @@ func (d *Database) ensureConsoleConstraints(ctx context.Context) error {
 		{model: &responseOwnershipModel{}, table: "response_ownership", name: "chk_response_ownership_provider"},
 		{model: &egressNodeModel{}, table: "egress_nodes", name: "chk_egress_nodes_specific_scope"},
 	}, "grok_console")
+}
+
+// ensureEgressAssignmentModeConstraint upgrades existing PostgreSQL and SQLite
+// databases whose CHECK predates strict account-import bindings.
+func (d *Database) ensureEgressAssignmentModeConstraint(ctx context.Context) error {
+	return d.ensureNamedConstraints(ctx, []consoleConstraint{
+		{model: &accountModel{}, table: "provider_accounts", name: "chk_accounts_egress_assignment_mode"},
+	}, "strict")
 }
 
 // ensureEgressAssetScopeConstraints upgrades existing SQLite/PostgreSQL CHECK

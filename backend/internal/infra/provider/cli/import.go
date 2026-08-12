@@ -24,21 +24,24 @@ type credentialImportDocument struct {
 }
 
 type importedCredentialEntry struct {
-	Provider     string `json:"provider"`
-	Name         string `json:"name"`
-	ClientID     string `json:"client_id"`
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	IDToken      string `json:"id_token"`
-	TokenType    string `json:"token_type"`
-	Scope        string `json:"scope"`
-	ExpiresAt    string `json:"expires_at"`
-	ExpiresIn    int64  `json:"expires_in"`
-	Email        string `json:"email"`
-	Subject      string `json:"sub"`
-	UserID       string `json:"user_id"`
-	PrincipalID  string `json:"principal_id"`
-	TeamID       string `json:"team_id"`
+	Provider      string `json:"provider"`
+	Name          string `json:"name"`
+	ClientID      string `json:"client_id"`
+	AccessToken   string `json:"access_token"`
+	RefreshToken  string `json:"refresh_token"`
+	IDToken       string `json:"id_token"`
+	TokenType     string `json:"token_type"`
+	Scope         string `json:"scope"`
+	ExpiresAt     string `json:"expires_at"`
+	ExpiresIn     int64  `json:"expires_in"`
+	Email         string `json:"email"`
+	Subject       string `json:"sub"`
+	UserID        string `json:"user_id"`
+	PrincipalID   string `json:"principal_id"`
+	TeamID        string `json:"team_id"`
+	ProxyURL      string `json:"proxy_url"`
+	Proxy         string `json:"proxy"`
+	ProxyURLCamel string `json:"proxyUrl"`
 }
 
 func marshalCredentials(values []provider.CredentialSeed) ([]byte, error) {
@@ -226,10 +229,15 @@ func normalizeImportedCredential(entry importedCredentialEntry) (provider.Creden
 	clientID := firstNonEmpty(entry.ClientID, defaultOAuthClientID)
 	identity := firstNonEmpty(userID, strings.ToLower(email), teamID, refreshToken, accessToken)
 	sourceKey := "import:" + security.HashToken(strings.Join([]string{providerName, clientID, identity}, "|"))
+	proxyURL, err := provider.ImportedProxyURL(entry.ProxyURL, entry.Proxy, entry.ProxyURLCamel)
+	if err != nil {
+		return provider.CredentialSeed{}, err
+	}
 
 	return provider.CredentialSeed{
 		Name: firstNonEmpty(entry.Name, email, userID, "Grok Build account"), Email: email, UserID: userID, TeamID: teamID,
 		SourceKey: sourceKey, OIDCClientID: clientID, AccessToken: accessToken, RefreshToken: refreshToken, ExpiresAt: expiresAt,
+		ProxyURL: proxyURL,
 	}, nil
 }
 

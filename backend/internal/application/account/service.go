@@ -18,6 +18,7 @@ import (
 
 	egressapp "github.com/chenyme/grok2api/backend/internal/application/egress"
 	accountdomain "github.com/chenyme/grok2api/backend/internal/domain/account"
+	egressdomain "github.com/chenyme/grok2api/backend/internal/domain/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
 	"github.com/chenyme/grok2api/backend/internal/infra/security"
 	"github.com/chenyme/grok2api/backend/internal/pkg/batch"
@@ -1430,6 +1431,14 @@ func (s *Service) importCredentialDocumentsWithProgress(ctx context.Context, ada
 }
 
 func (s *Service) persistImportedSeeds(ctx context.Context, seeds []provider.CredentialSeed, observer ImportedAccountObserver, progress BatchProgressObserver) (ImportResult, error) {
+	proxyBindings, err := s.prepareImportedProxyBindings(seeds)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	proxyImporter, proxyImportSupported := s.accounts.(repository.AccountProxyImportRepository)
+	if len(proxyBindings) > 0 && !proxyImportSupported {
+		return ImportResult{}, fmt.Errorf("%w: 当前持久化层不支持携带代理导入", ErrInvalidImport)
+	}
 	result := ImportResult{AccountIDs: make([]uint64, 0, len(seeds))}
 	if progress != nil {
 		if err := progress(0, len(seeds)); err != nil {
@@ -1447,7 +1456,19 @@ func (s *Service) persistImportedSeeds(ctx context.Context, seeds []provider.Cre
 			}
 			values = append(values, value)
 		}
-		stored, err := s.accounts.UpsertManyByIdentity(ctx, values)
+		chunkProxyBindings := make(map[int]repository.ImportedProxyBinding)
+		for absoluteIndex := start; absoluteIndex < end; absoluteIndex++ {
+			if binding, ok := proxyBindings[absoluteIndex]; ok {
+				chunkProxyBindings[absoluteIndex-start] = binding
+			}
+		}
+		var stored []repository.AccountUpsertResult
+		var err error
+		if len(chunkProxyBindings) > 0 {
+			stored, err = proxyImporter.UpsertManyByIdentityWithProxies(ctx, values, chunkProxyBindings, s.now().UTC())
+		} else {
+			stored, err = s.accounts.UpsertManyByIdentity(ctx, values)
+		}
 		if err != nil {
 			return ImportResult{}, err
 		}
@@ -1473,6 +1494,51 @@ func (s *Service) persistImportedSeeds(ctx context.Context, seeds []provider.Cre
 		}
 	}
 	s.WakeCredentialRefresh()
+	return result, nil
+}
+
+// prepareImportedProxyBindings validates every supplied proxy before the first
+// database chunk is written. This preserves the existing no-partial-write
+// behavior for malformed import documents while keeping proxy secrets out of
+// repository errors and management responses.
+func (s *Service) prepareImportedProxyBindings(seeds []provider.CredentialSeed) (map[int]repository.ImportedProxyBinding, error) {
+	result := make(map[int]repository.ImportedProxyBinding)
+	for index, seed := range seeds {
+		if strings.TrimSpace(seed.ProxyURL) == "" {
+			continue
+		}
+		normalized, err := egressapp.NormalizeProxyURL(seed.ProxyURL)
+		if err != nil || normalized == "" {
+			if err == nil {
+				err = errors.New("代理地址不能为空")
+			}
+			return nil, fmt.Errorf("%w: 第 %d 个账号的代理地址无效: %v", ErrInvalidImport, index+1, err)
+		}
+		providerValue := seed.Provider
+		if providerValue == "" {
+			providerValue = accountdomain.ProviderBuild
+		}
+		var scope egressdomain.Scope
+		switch providerValue {
+		case accountdomain.ProviderBuild:
+			scope = egressdomain.ScopeBuild
+		case accountdomain.ProviderWeb:
+			scope = egressdomain.ScopeWeb
+		case accountdomain.ProviderConsole:
+			scope = egressdomain.ScopeConsole
+		default:
+			return nil, fmt.Errorf("%w: 第 %d 个账号来源无效", ErrInvalidImport, index+1)
+		}
+		encrypted, err := s.cipher.Encrypt(normalized)
+		if err != nil {
+			return nil, err
+		}
+		fingerprint := security.HashToken(string(scope) + "\x00" + normalized)
+		result[index] = repository.ImportedProxyBinding{
+			Fingerprint: fingerprint, Name: "账号导入固定代理 " + fingerprint[:12], Scope: scope,
+			EncryptedProxyURL: encrypted,
+		}
+	}
 	return result, nil
 }
 

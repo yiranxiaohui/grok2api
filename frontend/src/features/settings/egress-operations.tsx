@@ -432,7 +432,7 @@ export function EgressSources({ scopeLabel }: { scopeLabel: (scope: EgressScope)
 }
 
 function fallbackNodeCandidates(nodes: EgressNodeDTO[], scope: EgressScope): EgressNodeDTO[] {
-  return nodes.filter((node) => node.enabled && node.proxyConfigured && !node.proxyPool && !node.accountBoundProxy && !nodeCooling(node) && supportsFallbackScope(node.scope, scope));
+  return nodes.filter((node) => node.enabled && node.proxyConfigured && !node.proxyPool && !node.accountBoundProxy && !node.importOnly && !nodeCooling(node) && supportsFallbackScope(node.scope, scope));
 }
 
 function nodeCooling(node: EgressNodeDTO): boolean {

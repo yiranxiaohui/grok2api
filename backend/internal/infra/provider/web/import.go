@@ -34,6 +34,9 @@ type importEntry struct {
 	TOSAcceptedAt     *time.Time `json:"tos_accepted_at,omitempty"`
 	TOSVersion        int        `json:"tos_version,omitempty"`
 	BirthDateSetAt    *time.Time `json:"birth_date_set_at,omitempty"`
+	ProxyURL          string     `json:"proxy_url,omitempty"`
+	Proxy             string     `json:"proxy,omitempty"`
+	ProxyURLCamel     string     `json:"proxyUrl,omitempty"`
 }
 
 func (a *Adapter) ParseImportedCredentials(data []byte) ([]provider.CredentialSeed, error) {
@@ -78,12 +81,17 @@ func (a *Adapter) ParseImportedCredentials(data []byte) ([]provider.CredentialSe
 		if name == "" {
 			name = fmt.Sprintf("Grok Web %s", security.HashToken(token)[:8])
 		}
+		proxyURL, err := provider.ImportedProxyURL(entry.ProxyURL, entry.Proxy, entry.ProxyURLCamel)
+		if err != nil {
+			return nil, fmt.Errorf("第 %d 个账号: %w", index+1, err)
+		}
 		result = append(result, provider.CredentialSeed{
 			Provider: account.ProviderWeb, AuthType: account.AuthTypeSSO, WebTier: tier,
 			Name: name, Email: strings.TrimSpace(entry.Email), UserID: strings.TrimSpace(entry.UserID),
 			SourceKey: "sso:" + security.HashToken(token), AccessToken: token, CloudflareCookies: entry.CloudflareCookies,
 			WebNSFWEnabledAt: entry.NSFWEnabledAt, WebTermsAcceptedAt: entry.TOSAcceptedAt,
 			WebTermsAcceptedVersion: entry.TOSVersion, WebBirthDateSetAt: entry.BirthDateSetAt,
+			ProxyURL: proxyURL,
 		})
 	}
 	return result, nil
