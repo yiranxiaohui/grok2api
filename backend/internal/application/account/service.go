@@ -205,6 +205,8 @@ const (
 	CleanupStatusCooldown       CleanupStatus = "cooldown"
 	CleanupStatusDisabled       CleanupStatus = "disabled"
 	CleanupStatusReauthRequired CleanupStatus = "reauthRequired"
+	// CleanupStatusRisk matches only persisted Build JWT bot_flag_source/bfs values 1 or 2.
+	CleanupStatusRisk CleanupStatus = "risk"
 )
 
 type DeviceStartResult struct {
@@ -942,7 +944,7 @@ func validateCleanupSelection(providerValue accountdomain.Provider, statuses []C
 	selected := make(map[CleanupStatus]struct{}, len(statuses))
 	for _, status := range statuses {
 		switch status {
-		case CleanupStatusCooldown, CleanupStatusDisabled, CleanupStatusReauthRequired:
+		case CleanupStatusCooldown, CleanupStatusDisabled, CleanupStatusReauthRequired, CleanupStatusRisk:
 			selected[status] = struct{}{}
 		default:
 			return nil, invalidInput("账号清理状态无效")
@@ -950,6 +952,16 @@ func validateCleanupSelection(providerValue accountdomain.Provider, statuses []C
 	}
 	if len(selected) == 0 {
 		return nil, invalidInput("至少选择一种账号状态")
+	}
+	if _, riskSelected := selected[CleanupStatusRisk]; riskSelected {
+		if providerValue != accountdomain.ProviderBuild {
+			return nil, invalidInput("仅 Grok Build 账号支持风控清理")
+		}
+		// Risk can overlap disabled, invalid, or cooling states. Keeping it exclusive
+		// makes the destructive preview exact instead of double-counting roots.
+		if len(selected) != 1 {
+			return nil, invalidInput("风控清理不能与其他账号状态同时选择")
+		}
 	}
 	for _, target := range targets {
 		if !target.IsValid() {
@@ -962,7 +974,9 @@ func validateCleanupSelection(providerValue accountdomain.Provider, statuses []C
 	return selected, nil
 }
 
-// CleanupAccounts deletes accounts in selected admin states; healthy, waiting-reset, and probing accounts are excluded.
+// CleanupAccounts deletes accounts in selected admin states. Risk cleanup is a Build-only,
+// exclusive selection based on persisted JWT bot_flag_source/bfs metadata; transient probe
+// failures and unknown states never match it.
 // Linked targets are resolved from binding tables regardless of peer state, and active-media groups are skipped whole.
 // The ID cursor always advances, so skipped groups cannot stall a cleanup batch.
 func (s *Service) CleanupAccounts(ctx context.Context, providerValue accountdomain.Provider, statuses []CleanupStatus, targets []accountdomain.Provider) (CleanupResult, error) {
@@ -974,7 +988,7 @@ func (s *Service) CleanupAccounts(ctx context.Context, providerValue accountdoma
 
 	const cleanupBatchSize = 500
 	now := s.now()
-	for _, status := range []CleanupStatus{CleanupStatusDisabled, CleanupStatusReauthRequired, CleanupStatusCooldown} {
+	for _, status := range []CleanupStatus{CleanupStatusDisabled, CleanupStatusReauthRequired, CleanupStatusCooldown, CleanupStatusRisk} {
 		if _, ok := selected[status]; !ok {
 			continue
 		}
@@ -1015,7 +1029,7 @@ func (s *Service) PreviewCleanup(ctx context.Context, providerValue accountdomai
 		return repository.CleanupPreview{}, err
 	}
 	raw := make([]string, 0, len(selected))
-	for _, status := range []CleanupStatus{CleanupStatusDisabled, CleanupStatusReauthRequired, CleanupStatusCooldown} {
+	for _, status := range []CleanupStatus{CleanupStatusDisabled, CleanupStatusReauthRequired, CleanupStatusCooldown, CleanupStatusRisk} {
 		if _, ok := selected[status]; ok {
 			raw = append(raw, string(status))
 		}

@@ -223,6 +223,7 @@ After first sign-in, change the administrator password and remove `bootstrapAdmi
 | Console | Pasted/TXT SSO, JSON/JSONL | Re-importable account file |
 
 Imports accept UTF-8 BOM. Bulk quota sync, Build credential renewal, Web→Build/Console conversion, account tools, and cleanup report live progress.
+Grok Build cleanup can preview and delete accounts confirmed by JWT `bot_flag_source`/`bfs=1|2`; network errors, probe failures, and unknown states never match this condition.
 
 Each JSON/JSONL account may include `proxy_url` (`proxy` and `proxyUrl` are also accepted):
 

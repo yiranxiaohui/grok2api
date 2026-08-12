@@ -2116,6 +2116,7 @@ export function AccountsPage() {
               ["cooldown", t("accounts.statusCooldown")],
               ["disabled", t("accounts.statusDisabled")],
               ["reauthRequired", t("accounts.statusReauthRequired")],
+              ...(provider === "grok_build" ? [["risk", `${t("accounts.botRisk")} (BFS 1/2)`] as const] : []),
             ] as const).map(([status, label]) => {
               const checked = cleanupStatuses.has(status);
               const pending = checked && !cleanupPreviewError && !cleanupPreviewFresh;
@@ -2127,7 +2128,15 @@ export function AccountsPage() {
                     onCheckedChange={(value) => {
                       setCleanupStatuses((current) => {
                         const next = new Set(current);
-                        if (value === true) next.add(status); else next.delete(status);
+                        if (value === true) {
+                          // Risk overlaps the operational states, so it remains an exclusive
+                          // destructive scope and the server can provide an exact preview.
+                          if (status === "risk") return new Set<AccountCleanupStatus>(["risk"]);
+                          next.delete("risk");
+                          next.add(status);
+                        } else {
+                          next.delete(status);
+                        }
                         return next;
                       });
                       setCleanupPreviewError(false);

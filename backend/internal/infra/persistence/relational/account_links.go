@@ -565,8 +565,11 @@ func (r *AccountRepository) DeleteAccountStatusBatchWithLinked(ctx context.Conte
 	if limit < 1 {
 		return outcome, 0, afterID, nil
 	}
-	if status != "disabled" && status != "reauthRequired" && status != "cooldown" {
+	if status != "disabled" && status != "reauthRequired" && status != "cooldown" && status != "risk" {
 		return outcome, 0, afterID, fmt.Errorf("不支持清理账号状态 %q", status)
+	}
+	if status == "risk" && providerValue != account.ProviderBuild {
+		return outcome, 0, afterID, fmt.Errorf("仅 Grok Build 账号支持风控清理")
 	}
 	candidateCount := 0
 	maxCandidateID := afterID
@@ -620,8 +623,11 @@ func (r *AccountRepository) CountCleanupWithLinked(ctx context.Context, provider
 	}
 	db := r.db.db.WithContext(ctx)
 	for _, status := range statuses {
-		if status != "disabled" && status != "reauthRequired" && status != "cooldown" {
+		if status != "disabled" && status != "reauthRequired" && status != "cooldown" && status != "risk" {
 			return preview, fmt.Errorf("不支持清理账号状态 %q", status)
+		}
+		if status == "risk" && providerValue != account.ProviderBuild {
+			return preview, fmt.Errorf("仅 Grok Build 账号支持风控清理")
 		}
 		var rootCount int64
 		if err := applyAccountStatusFilter(

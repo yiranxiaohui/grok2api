@@ -83,6 +83,68 @@ func TestCleanupAccountsDeletesOnlySelectedCurrentStatuses(t *testing.T) {
 	}
 }
 
+func TestCleanupAccountsDeletesOnlyPersistedBuildBotRisk(t *testing.T) {
+	ctx := context.Background()
+	database, err := relational.OpenSQLite(ctx, filepath.Join(t.TempDir(), "account-risk-cleanup.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := database.InitializeSchema(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cipher, err := security.NewCipher(base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := cipher.Encrypt("risk-cleanup-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := relational.NewAccountRepository(database)
+	service := NewService(repo, nil, nil, memory.NewStickyStore(), nil, cipher, nil)
+
+	create := func(name string, source int) uint64 {
+		t.Helper()
+		value, _, createErr := repo.UpsertByIdentity(ctx, accountdomain.Credential{
+			Provider: accountdomain.ProviderBuild, AuthType: accountdomain.AuthTypeOAuth,
+			Name: name, SourceKey: "risk-cleanup-" + name, EncryptedAccessToken: token,
+			Enabled: true, AuthStatus: accountdomain.AuthStatusActive, BuildBotFlagSource: source,
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		return value.ID
+	}
+
+	normalID := create("normal", 0)
+	riskOneID := create("risk-one", 1)
+	riskTwoID := create("risk-two", 2)
+	preview, err := service.PreviewCleanup(ctx, accountdomain.ProviderBuild, []CleanupStatus{CleanupStatusRisk}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.RootsByStatus["risk"] != 2 || preview.RootCount != 2 || preview.Total != 2 {
+		t.Fatalf("risk preview = %#v", preview)
+	}
+
+	result, err := service.CleanupAccounts(ctx, accountdomain.ProviderBuild, []CleanupStatus{CleanupStatusRisk}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Deleted != 2 || result.RootsDeleted != 2 || result.LinkedDeleted != 0 || result.Skipped != 0 {
+		t.Fatalf("risk cleanup result = %#v", result)
+	}
+	for _, id := range []uint64{riskOneID, riskTwoID} {
+		if _, err := repo.Get(ctx, id); err == nil {
+			t.Fatalf("risk account %d was not deleted", id)
+		}
+	}
+	if _, err := repo.Get(ctx, normalID); err != nil {
+		t.Fatalf("normal account should remain: %v", err)
+	}
+}
+
 func TestCleanupAccountsRequiresStatus(t *testing.T) {
 	service := NewService(nil, nil, nil, nil, nil, nil, nil)
 	if _, err := service.CleanupAccounts(context.Background(), accountdomain.ProviderBuild, nil, nil); err == nil {
@@ -94,6 +156,12 @@ func TestCleanupAccountsRequiresStatus(t *testing.T) {
 	}
 	if _, err := service.CleanupAccounts(context.Background(), accountdomain.ProviderBuild, []CleanupStatus{CleanupStatusDisabled}, []accountdomain.Provider{accountdomain.Provider("nope")}); err == nil {
 		t.Fatal("invalid target cleanup unexpectedly succeeded")
+	}
+	if _, err := service.CleanupAccounts(context.Background(), accountdomain.ProviderWeb, []CleanupStatus{CleanupStatusRisk}, nil); err == nil {
+		t.Fatal("non-Build risk cleanup unexpectedly succeeded")
+	}
+	if _, err := service.CleanupAccounts(context.Background(), accountdomain.ProviderBuild, []CleanupStatus{CleanupStatusRisk, CleanupStatusDisabled}, nil); err == nil {
+		t.Fatal("overlapping risk and status cleanup unexpectedly succeeded")
 	}
 }
 

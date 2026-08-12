@@ -8,7 +8,7 @@ export type { AccountTaskProgressDTO } from "@/features/accounts/account-task-pr
 
 export type AccountProvider = "grok_build" | "grok_web" | "grok_console";
 export type BuildRouteMode = "auto" | "build" | "xai";
-export type AccountCleanupStatus = "cooldown" | "disabled" | "reauthRequired";
+export type AccountCleanupStatus = "cooldown" | "disabled" | "reauthRequired" | "risk";
 
 export type BillingDTO = {
   planCode?: string;

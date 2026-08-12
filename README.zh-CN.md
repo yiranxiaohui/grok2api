@@ -224,6 +224,7 @@ pnpm dev
 | Console | 粘贴/TXT SSO、JSON/JSONL | 可重新导入的账号文件 |
 
 导入兼容 UTF-8 BOM。批量额度同步、Build 凭据续期、Web→Build/Console 转换、账号工具和账号清理均显示实时进度。
+Grok Build 清理支持按 JWT 中已确认的 `bot_flag_source`/`bfs=1|2` 预览并删除风控账号；网络错误、探测失败和未知状态不会命中该条件。
 
 JSON/JSONL 中的每个账号可携带 `proxy_url`（同时兼容 `proxy`、`proxyUrl`）：
 
